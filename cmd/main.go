@@ -35,22 +35,56 @@ func main() {
 	client := github.NewClient(tc)
 
 	// ユーザーのリポジトリを取得
-	options := &github.RepositoryListByAuthenticatedUserOptions{
-		Visibility: "public",
-		ListOptions: github.ListOptions{
-			Page:    1,
-			PerPage: 1000,
-		},
-	}
-	repos, _, err := client.Repositories.ListByAuthenticatedUser(ctx, options)
-	if err != nil {
-		log.Fatal(err)
+	// ---
+	// 特定の単語を用いてフィルタしたいかを選択できるようにしたい
+	fmt.Printf("Filter: ")
+	var filter string
+	fmt.Scanln(&filter)
+	var repos []*github.Repository
+	// 入力した単語があれば、その単語を含むリポジトリのみを表示する
+	if filter != "" {
+		options := &github.SearchOptions{
+			ListOptions: github.ListOptions{
+				Page:    1,
+				PerPage: 100,
+			},
+		}
+		// 認証したユーザーのリポジトリを取得
+		user, _, err := client.Users.Get(ctx, "")
+		if err != nil {
+			log.Fatal(err)
+		}
+		userLogin := user.Login
+		query := fmt.Sprintf(
+			"%s user:%s",
+			filter,
+			*userLogin,
+		)
+		searchResult, _, err := client.Search.Repositories(ctx, query, options)
+		if err != nil {
+			log.Fatal(err)
+		}
+		repos = searchResult.Repositories
+	} else {
+		options := &github.RepositoryListByAuthenticatedUserOptions{
+			Visibility: "public",
+			ListOptions: github.ListOptions{
+				Page:    1,
+				PerPage: 100,
+			},
+		}
+		repos, _, err = client.Repositories.ListByAuthenticatedUser(ctx, options)
+
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	for _, repo := range repos {
 		topics := repo.Topics
 		if len(topics) == 0 {
 			fmt.Printf("Repository: %s\n", *repo.Name)
+			fmt.Println("No topics")
 			continue
 		}
 		// Starがついている場合はスキップ
@@ -79,12 +113,13 @@ func main() {
 				fmt.Println("Canceled")
 				continue
 			}
-			repo.Private = github.Bool(false)
-			_, _, err := client.Repositories.Edit(ctx, *repo.Owner.Login, *repo.Name, repo)
+			_, _, err := client.Repositories.Edit(ctx, *repo.Owner.Login, *repo.Name, &github.Repository{
+				Private: github.Bool(false),
+			})
 			if err != nil {
 				log.Fatal(err)
 			}
-			fmt.Printf("Made public: %s\n", *repo.Name)
+			fmt.Printf("Made public: %s\n", *repo.URL)
 			continue
 		}
 		if slices.Contains(topics, "private") {
@@ -92,8 +127,9 @@ func main() {
 			if *repo.Private {
 				continue
 			}
-			repo.Private = github.Bool(true)
-			_, _, err := client.Repositories.Edit(ctx, *repo.Owner.Login, *repo.Name, repo)
+			_, _, err := client.Repositories.Edit(ctx, *repo.Owner.Login, *repo.Name, &github.Repository{
+				Private: github.Bool(true),
+			})
 			if err != nil {
 				log.Fatal(err)
 			}
